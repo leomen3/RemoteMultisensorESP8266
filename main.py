@@ -14,6 +14,9 @@ if not DEBUG:
     import network
     import esp
     from dht import DHT11
+    import ubinascii
+    from umqtt.simple import MQTTClient
+    #from umqtt.robust import MQTTClient
 else:
     import time
 
@@ -21,11 +24,16 @@ else:
 UTC_OFFSET = 3   # hours of differenc between UTC and local (Jerusalem) time
 COMMANDS_PORT = 5641  # port at RPi to send commands
 RPi_HOST = "10.0.0.17"
-TEMPERATURE_LOG_DELAY = 10*60    # minimal number of seconds to wait/
+TEMPERATURE_LOG_DELAY = 5*60    # minimal number of seconds to wait/
                             # between subsequent temperature/humidity Logging
 TEMPERATURE_SAMPLE_DELAY = 5
-MOTION_LOG_DELAY = 15*60   # minimal number of seconds to wait/
+MOTION_LOG_DELAY = 5*60   # minimal number of seconds to wait/
                             # between subsequent motion Logging
+
+CONFIG = {
+    "broker": RPi_HOST,
+    "client_id": b"chipa_ESP8266"
+}
 
 
 def toggleGPIO(p):
@@ -116,7 +124,8 @@ def handleDHT(temper, humid):
             currentTime - lastTemperatureLogTime > TEMPERATURE_LOG_DELAY:
         print ("LOGGING temperature and humidity at: ", currentTime)
         lastTemperatureLogTime = currentTime
-        pass  # later -> log to RPi
+        pushSample(temper,"Temperature_Chipa")
+        pushSample(humid,"Humid_Chipa")
 
 
 def handlePIR():
@@ -127,7 +136,12 @@ def handlePIR():
             (currentTime - lastMotionLogTime) > MOTION_LOG_DELAY:
         print ("LOGGING motion at: ", currentTime)
         lastMotionLogTime = currentTime
-        pass  # later -> log to RPi
+        pushSample(lastMotionTime,"Motion_Chipa")
+
+
+def pushSample(sample, topic):
+    global client
+    client.publish(topic, str(sample))
 
 
 def main():
@@ -159,7 +173,18 @@ if not DEBUG:
     dhtSensor = DHT11(machine.Pin(4))  # D2 pin on NodeMCU board. DHT signal pin
     pirSig = machine.Pin(15, machine.Pin.IN)          # D8 pin on NodeMCU. PIR signal pin
     pirSig.irq(handler=lambda p: pin_interrupt(), trigger=machine.Pin.IRQ_RISING)
-    print ("Initializing Done")
+
+    #MQTT configs
+    client = MQTTClient(CONFIG['client_id'], CONFIG['broker'])
+    try:
+        utime.sleep(3)
+        client.connect()
+        print("Connected to {}".format(CONFIG['broker']))
+        print ("Initializing Done")
+    except:
+        print("failed to connect to RPi. waiting 5sec and resetting")
+        utime.sleep(5)
+        machine.reset()
 
 if DEBUG:
     if __name__ == "__main__":
